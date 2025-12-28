@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { hashPassword } from '@/lib/auth/encryption';
 import { query, transaction } from '@/lib/db/updated-connection';
 import { z } from 'zod';
-import crypto from 'crypto'; // For token generation
+import crypto from 'crypto'; 
 
 interface UserRecord {
   id: number;
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Use transaction to ensure both ID and Token are created safely
+    // This block calculates ID internally without using M_ID_SEQUENCE tracking table
     const userData = await transaction(async (connection) => {
       const [rows] = (await connection.execute(
         'SELECT COALESCE(MAX(id), 0) + 1 as new_id FROM M_Users'
@@ -51,9 +51,7 @@ export async function POST(request: NextRequest) {
       
       const nextId = rows[0]?.new_id || 1;
       
-      // Generate unique 32-char token (16 bytes = 32 hex chars)
       const userToken = crypto.randomBytes(16).toString('hex');
-
       const hashedPassword = await hashPassword(password);
 
       await connection.execute(
@@ -64,19 +62,20 @@ export async function POST(request: NextRequest) {
       return { nextId, userToken };
     });
 
+    // OWASP SECURITY: We omit the 'id' property from the response data
     return NextResponse.json({
       success: true,
       data: {
         user: { 
-          id: userData.nextId, 
-          token: userData.userToken, // Send token back for frontend storage
+          // id: userData.nextId, <--- REMOVED: Keep internal ID hidden
+          token: userData.userToken, 
           firstName, 
           lastName, 
           email, 
           roleId 
-        },
-        message: 'User registered successfully'
-      }
+        }
+      },
+      message: 'User registered successfully'
     });
 
   } catch (error) {

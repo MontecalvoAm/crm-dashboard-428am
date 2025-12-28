@@ -1,4 +1,4 @@
-import mysql from 'mysql2/promise';
+import mysql, { PoolOptions, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { DatabaseConfig } from '@/types/db';
 
 // Database configuration
@@ -12,18 +12,22 @@ const config: DatabaseConfig = {
   timeout: parseInt(process.env.DB_TIMEOUT || '60000'),
 };
 
-// Create a connection pool for better performance and connection management
-const pool = mysql.createPool({
-  ...config,
+// Fixed PoolOptions: acquireTimeout is moved to the connectTimeout or managed by the pool
+const poolOptions: PoolOptions = {
+  host: config.host,
+  port: config.port,
+  user: config.user,
+  password: config.password,
+  database: config.database,
   waitForConnections: true,
   connectionLimit: config.connectionLimit,
   queueLimit: 0,
-  acquireTimeout: 60000,
-  timeout: config.timeout,
-  allowLoadLocalInfile: false,
-});
+  connectTimeout: 60000, // This replaces acquireTimeout in mysql2/promise
+  enableKeepAlive: true,
+};
 
-// Test database connection
+const pool = mysql.createPool(poolOptions);
+
 export async function testConnection(): Promise<void> {
   try {
     const connection = await pool.getConnection();
@@ -36,35 +40,37 @@ export async function testConnection(): Promise<void> {
   }
 }
 
-// Get a database connection from the pool
-export async function getConnection() {
+export async function getConnection(): Promise<mysql.PoolConnection> {
   return await pool.getConnection();
 }
 
-// Execute a query with the pool
-export async function query(sql: string, params?: any[]): Promise<any> {
+// Fixed 'any' by using mysql2 types
+export async function query<T = RowDataPacket[] | ResultSetHeader>(
+  sql: string, 
+  params?: unknown[]
+): Promise<T> {
   try {
     const [rows] = await pool.execute(sql, params);
-    return rows;
+    return rows as T;
   } catch (error) {
     console.error('Database query error:', error);
     throw error;
   }
 }
 
-// Get next ID using MAX+1 strategy via database procedure
+// Note: This logic is still here for your other tables, 
+// but we removed the session table requirement
 export async function getNextId(tableName: string): Promise<number> {
   try {
-    const [result]: any = await query('CALL get_next_id(?, @next_id)', [tableName]);
-    const [rows]: any = await query('SELECT @next_id as id');
-    return rows[0].id;
+    await query('CALL get_next_id(?, @next_id)', [tableName]);
+    const rows = await query<RowDataPacket[]>('SELECT @next_id as id');
+    return rows[0].id as number;
   } catch (error) {
     console.error(`Error getting next ID for table ${tableName}:`, error);
     throw error;
   }
 }
 
-// Transaction helper
 export async function transaction<T>(
   callback: (connection: mysql.PoolConnection) => Promise<T>
 ): Promise<T> {
@@ -84,14 +90,12 @@ export async function transaction<T>(
   }
 }
 
-// Helper to format database results with camelCase keys
-export function formatResults<T extends Record<string, any>>(rows: any[]): T[] {
+export function formatResults<T extends Record<string, unknown>>(rows: RowDataPacket[]): T[] {
   return rows.map((row) => {
-    const formatted: any = {};
+    const formatted: Record<string, unknown> = {};
 
     for (const [key, value] of Object.entries(row)) {
-      // Convert snake_case to camelCase
-      const camelKey = key.replace(/_([a-z])/g, (match, letter) => letter.toUpperCase());
+      const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
       formatted[camelKey] = value;
     }
 
@@ -99,10 +103,9 @@ export function formatResults<T extends Record<string, any>>(rows: any[]): T[] {
   });
 }
 
-// Safely parse JSON fields
-export function parseJson<T>(value: string | null, defaultValue: T = [] as T): T {
+// Utility functions
+export function parseJson<T>(value: string | null, defaultValue: T): T {
   if (!value) return defaultValue;
-
   try {
     return JSON.parse(value) as T;
   } catch {
@@ -110,18 +113,8 @@ export function parseJson<T>(value: string | null, defaultValue: T = [] as T): T
   }
 }
 
-// Helper to convert JS Date to MySQL DATETIME
 export function toMySqlDateTime(date: Date): string {
   return date.toISOString().slice(0, 19).replace('T', ' ');
 }
-
-// Close pool on application exit
-process.on('SIGTERM', async () => {
-  await pool.end();
-});
-
-process.on('SIGINT', async () => {
-  await pool.end();
-});
 
 export default pool;

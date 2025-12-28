@@ -1,15 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   RotateCcw, Trash2, Search, Loader2, 
-  ShieldAlert, Box, ArrowLeft 
-} from 'lucide-react'; // Removed unused 'Users'
+  ShieldAlert, ArrowLeft, Users, 
+  Target, Building2, Mail, Calendar 
+} from 'lucide-react';
 import Link from 'next/link';
 
-// 1. Define the Interface to replace 'any'
+// --- Interfaces for Uniformity ---
 interface ArchivedUser {
-  id: number;
+  token: string;
   first_name: string;
   last_name: string;
   email: string;
@@ -17,38 +18,62 @@ interface ArchivedUser {
   archived_at: string;
 }
 
+interface ArchivedLead {
+  token: string;
+  LeadName: string;
+  Email: string;
+  StatusName: string;
+  archived_at: string;
+}
+
+interface ArchivedCompany {
+  token: string;
+  CompanyName: string;
+  Industry: string;
+  Email: string;
+  archived_at: string;
+}
+
+type ArchiveTab = 'users' | 'leads' | 'companies';
+// Create a union type for the state
+type ArchivedItem = ArchivedUser | ArchivedLead | ArchivedCompany;
+
 export default function ArchiveVaultPage() {
-  // 2. Apply the interface to the state
-  const [archivedUsers, setArchivedUsers] = useState<ArchivedUser[]>([]);
+  const [activeTab, setActiveTab] = useState<ArchiveTab>('users');
+  // Use the union type instead of any[]
+  const [data, setData] = useState<ArchivedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [processingId, setProcessingId] = useState<number | null>(null);
+  const [processingToken, setProcessingToken] = useState<string | null>(null);
 
-  const fetchArchived = async () => {
+  const fetchArchived = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/archive/users');
-      const data = await res.json();
-      if (data.success) setArchivedUsers(data.data);
+      setLoading(true);
+      const res = await fetch(`/api/admin/archive/${activeTab}`);
+      const json = await res.json();
+      if (json.success) setData(json.data);
+    } catch (err) {
+      console.error(`Failed to fetch archived ${activeTab}`, err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab]);
 
-  useEffect(() => { fetchArchived(); }, []);
+  useEffect(() => { fetchArchived(); }, [fetchArchived]);
 
-  const handleVaultAction = async (userId: number, action: 'restore' | 'permanent_delete') => {
-    if (action === 'permanent_delete' && !confirm('WARNING: This action cannot be undone. Permanent delete?')) return;
+  const handleVaultAction = async (token: string, action: 'restore' | 'permanent_delete') => {
+    if (action === 'permanent_delete' && !confirm('CRITICAL WARNING: This action cannot be undone. Purge record?')) return;
     
-    setProcessingId(userId);
+    setProcessingToken(token);
     try {
-      const res = await fetch('/api/admin/archive/users', {
+      const res = await fetch(`/api/admin/archive/${activeTab}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, action })
+        body: JSON.stringify({ token, action })
       });
       if (res.ok) await fetchArchived();
     } finally {
-      setProcessingId(null);
+      setProcessingToken(null);
     }
   };
 
@@ -60,84 +85,117 @@ export default function ArchiveVaultPage() {
 
   return (
     <div className="max-w-7xl mx-auto animate-in fade-in duration-700">
-      <header className="mb-10 flex justify-between items-end">
+      <header className="mb-10 flex flex-col md:flex-row justify-between items-end gap-6">
         <div>
-          <Link href="/users" className="flex items-center gap-2 text-[10px] font-black uppercase text-gray-400 hover:text-yellow-500 mb-4 transition-colors tracking-widest group">
-            <ArrowLeft className="w-3 h-3 group-hover:-translate-x-1 transition-transform" /> Back to Team Control
+          <Link href="/dashboard" className="flex items-center gap-2 text-[10px] font-black uppercase text-gray-400 hover:text-yellow-500 mb-4 transition-colors tracking-widest group">
+            <ArrowLeft className="w-3 h-3 group-hover:-translate-x-1 transition-transform" /> Back to Dashboard
           </Link>
           <h1 className="text-4xl font-black text-gray-900 tracking-tight uppercase">Archive Vault</h1>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.3em] mt-2">Manage restricted system records</p>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.3em] mt-2">Restricted Access Management</p>
         </div>
         
-        <div className="relative w-72">
+        <div className="relative w-full md:w-80">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
           <input 
             type="text" 
-            placeholder="SEARCH VAULT..." 
+            placeholder={`SEARCH ${activeTab.toUpperCase()}...`} 
             className="w-full pl-12 pr-4 py-3.5 bg-white border border-gray-100 rounded-2xl text-[10px] font-black uppercase tracking-widest outline-none focus:ring-4 focus:ring-yellow-400/5 transition-all"
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
       </header>
 
+      <div className="flex gap-2 bg-white border border-gray-100 p-1.5 rounded-2xl w-fit mb-10 shadow-sm">
+        {(['users', 'leads', 'companies'] as ArchiveTab[]).map((tab) => (
+          <button 
+            key={tab}
+            onClick={() => { setActiveTab(tab); setData([]); }} 
+            className={`px-8 py-2.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+              activeTab === tab 
+                ? 'bg-yellow-400 text-white shadow-md shadow-yellow-100' 
+                : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
       <div className="bg-white border border-gray-100 rounded-[3rem] shadow-sm overflow-hidden">
         <div className="p-10 bg-gray-50/40 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-5">
             <div className="w-14 h-14 bg-white rounded-[1.5rem] flex items-center justify-center text-yellow-500 shadow-sm border border-gray-100">
-              <Box className="w-7 h-7" />
+              {activeTab === 'users' && <Users className="w-7 h-7" />}
+              {activeTab === 'leads' && <Target className="w-7 h-7" />}
+              {activeTab === 'companies' && <Building2 className="w-7 h-7" />}
             </div>
             <div>
-              <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">Archived User Records</h3>
-              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter mt-1">Status: Restricted Access</p>
+              <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">Archived {activeTab} Records</h3>
+              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter mt-1">Status: Soft-Deleted</p>
             </div>
           </div>
           <div className="px-6 py-2 bg-yellow-400 rounded-xl text-[10px] font-black text-white uppercase tracking-widest shadow-lg shadow-yellow-100">
-            {archivedUsers.length} Entries
+            {data.length} Entries
           </div>
         </div>
 
         <table className="w-full text-left">
           <thead className="bg-gray-50/20 border-b border-gray-50">
             <tr>
-              <th className="px-10 py-6 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">User Identity</th>
-              <th className="px-10 py-6 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Original Role</th>
-              <th className="px-10 py-6 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Archived Date</th>
+              <th className="px-10 py-6 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Identity Details</th>
+              <th className="px-10 py-6 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Categorization</th>
+              <th className="px-10 py-6 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Archived On</th>
               <th className="px-10 py-6 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-right">Vault Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {archivedUsers
-              .filter(u => `${u.first_name} ${u.last_name}`.toLowerCase().includes(searchTerm.toLowerCase()))
-              .map(user => (
-              <tr key={user.id} className="hover:bg-gray-50/30 transition-all group">
+            {data
+              .filter(item => {
+                // Type-safe name resolution
+                const name = activeTab === 'users' ? `${(item as ArchivedUser).first_name} ${(item as ArchivedUser).last_name}` : 
+                             activeTab === 'leads' ? (item as ArchivedLead).LeadName : (item as ArchivedCompany).CompanyName;
+                return name.toLowerCase().includes(searchTerm.toLowerCase());
+              })
+              .map(item => (
+              <tr key={item.token} className="hover:bg-gray-50/30 transition-all group">
                 <td className="px-10 py-7">
-                  <p className="text-sm font-black text-gray-900 uppercase tracking-tighter">{user.first_name} {user.last_name}</p>
-                  <p className="text-[10px] text-gray-400 font-bold tracking-widest mt-0.5">{user.email}</p>
+                  <p className="text-sm font-black text-gray-900 uppercase tracking-tighter">
+                    {activeTab === 'users' ? `${(item as ArchivedUser).first_name} ${(item as ArchivedUser).last_name}` : 
+                     activeTab === 'leads' ? (item as ArchivedLead).LeadName : (item as ArchivedCompany).CompanyName}
+                  </p>
+                  <p className="text-[10px] text-gray-400 font-bold tracking-widest mt-0.5">
+                    <Mail className="w-3 h-3 inline mr-1 text-yellow-500" /> 
+                    {/* Handle casing differences between your interfaces */}
+                    {activeTab === 'users' ? (item as ArchivedUser).email : (item as ArchivedLead | ArchivedCompany).Email}
+                  </p>
                 </td>
                 <td className="px-10 py-7">
                   <span className="px-3 py-1 bg-white border border-gray-100 rounded-lg text-[9px] font-black uppercase text-gray-400 tracking-tighter">
-                    {user.role_name}
+                    {activeTab === 'users' ? (item as ArchivedUser).role_name : 
+                     activeTab === 'leads' ? (item as ArchivedLead).StatusName : (item as ArchivedCompany).Industry}
                   </span>
                 </td>
                 <td className="px-10 py-7">
-                   <p className="text-[10px] font-bold text-gray-500 uppercase">
-                     {new Date(user.archived_at).toLocaleDateString(undefined, { dateStyle: 'long' })}
-                   </p>
+                    <div className="flex items-center gap-2 text-gray-500">
+                      <Calendar className="w-3.5 h-3.5" />
+                      <p className="text-[10px] font-bold uppercase">
+                        {new Date(item.archived_at).toLocaleDateString(undefined, { dateStyle: 'long' })}
+                      </p>
+                    </div>
                 </td>
                 <td className="px-10 py-7 text-right">
                   <div className="flex justify-end gap-3">
                     <button 
-                      onClick={() => handleVaultAction(user.id, 'restore')}
-                      disabled={processingId === user.id}
-                      className="flex items-center gap-2 px-5 py-2.5 bg-green-50 text-green-600 border border-green-100 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-green-500 hover:text-white transition-all cursor-pointer disabled:opacity-50 shadow-sm shadow-green-100/50"
+                      onClick={() => handleVaultAction(item.token, 'restore')}
+                      disabled={processingToken === item.token}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-green-50 text-green-600 border border-green-100 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-green-500 hover:text-white transition-all cursor-pointer disabled:opacity-50"
                     >
                       <RotateCcw className="w-3.5 h-3.5" /> Restore
                     </button>
-                    
                     <button 
-                      onClick={() => handleVaultAction(user.id, 'permanent_delete')}
-                      disabled={processingId === user.id}
-                      className="flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-600 border border-red-100 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all cursor-pointer disabled:opacity-50 shadow-sm shadow-red-100/50"
+                      onClick={() => handleVaultAction(item.token, 'permanent_delete')}
+                      disabled={processingToken === item.token}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-600 border border-red-100 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all cursor-pointer disabled:opacity-50"
                     >
                       <Trash2 className="w-3.5 h-3.5" /> Purge
                     </button>
@@ -145,16 +203,14 @@ export default function ArchiveVaultPage() {
                 </td>
               </tr>
             ))}
-            {archivedUsers.length === 0 && (
-              <tr>
-                <td colSpan={4} className="py-20 text-center">
-                  <ShieldAlert className="w-12 h-12 text-gray-100 mx-auto mb-4" />
-                  <p className="text-gray-300 font-black uppercase text-xs tracking-widest">The Vault is currently empty</p>
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
+        {data.length === 0 && !loading && (
+          <div className="py-24 text-center">
+            <ShieldAlert className="w-12 h-12 text-gray-100 mx-auto mb-4" />
+            <p className="text-gray-300 font-black uppercase text-xs tracking-widest">The Vault for {activeTab} is empty</p>
+          </div>
+        )}
       </div>
     </div>
   );

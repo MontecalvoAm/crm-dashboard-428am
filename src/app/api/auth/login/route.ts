@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyPassword, generateTokenPair } from '@/lib/auth/encryption';
+import { verifyPassword } from '@/lib/auth/encryption'; 
 import { query } from '@/lib/db/updated-connection';
-import { createSession } from '@/lib/auth/session';
+import { createSession } from '@/lib/auth/session'; 
 import { z } from 'zod';
 
+// 1. We keep 'id' in the interface for INTERNAL database operations
 interface LoginUserRecord {
-  id: number;
-  token: string; // Added token
+  id: number; // Keep for internal SQL queries
+  token: string;
   first_name: string;
   last_name: string;
   email: string;
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
 
     const { email, password } = validationResult.data;
 
-    // 1. Find user with role - Added u.token to SELECT
+    // 1. Find user - we SELECT the id so we can use it on the server
     const users = (await query(`
       SELECT u.id, u.token, u.first_name, u.last_name, u.email, u.password_hash, u.role_id, 
              u.group_roles, u.is_active, r.role_name, r.permissions
@@ -64,60 +65,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Metadata for session
-    const forwarded = request.headers.get('x-forwarded-for');
-    const ip = forwarded ? forwarded.split(',')[0] : 'unknown';
-    const userAgent = request.headers.get('user-agent') || 'unknown';
-
-    const tokenPayload = {
-      userId: user.id,
-      email: user.email,
-      roleId: user.role_id,
-      roleName: user.role_name,
-      groupRoles: (() => {
-        try {
-          return typeof user.group_roles === 'string' ? JSON.parse(user.group_roles) : (user.group_roles || []);
-        } catch { return []; }
-      })(),
-      permissions: (() => {
-        try {
-          return typeof user.permissions === 'string' ? JSON.parse(user.permissions) : (user.permissions || []);
-        } catch { return []; }
-      })(),
-    };
-
-    const tokens = generateTokenPair(tokenPayload);
-
-    // 5. Create session
+    // 3. Create stateless session (JWT in HttpOnly Cookie)
     await createSession({
-      userId: user.id,
-      sessionToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      ipAddress: ip,
-      userAgent: userAgent,
+      token: user.token,
+      roleId: user.role_id,
+      email: user.email,
     });
 
-    // 6. Update last login
+    // 4. Update last login - Using ID here is safe as it stays on the server
     await query(`
       UPDATE M_Users
       SET last_login = NOW()
       WHERE id = ?
     `, [user.id]);
 
+    // 5. OWASP SECURITY FIX: Omit the numeric 'id' from the response.
+    // The frontend only receives and stores the 'token'.
     return NextResponse.json({
       success: true,
       data: {
         user: {
-          id: user.id,
-          token: user.token, // Included token for public use
+          // id is NOT returned here
+          token: user.token,
           firstName: user.first_name,
           lastName: user.last_name,
           email: user.email,
           roleId: user.role_id,
           roleName: user.role_name,
-        },
-        tokens,
+        }
       },
       message: 'Login successful',
     });

@@ -7,7 +7,7 @@ import Link from 'next/link';
 export default function Home() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false); // Toggle state
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
@@ -27,14 +27,20 @@ export default function Home() {
       const data = await response.json();
 
       if (data.success) {
-        localStorage.setItem('accessToken', data.data.tokens.accessToken);
+        // --- LOGIC UPDATED HERE ---
+        // 1. Remove localStorage.setItem('accessToken', ...) because we use Cookies now
+        // 2. Only save the user profile details for the UI
         localStorage.setItem('user', JSON.stringify(data.data.user));
+        
+        // 3. Redirect to dashboard
         router.push('/dashboard');
       } else {
         setError(data.error || 'Authentication failed');
       }
-    } catch { 
-      setError('Network error. Please check your connection.');
+    } catch (err) { 
+      // Improved error logging for debugging
+      console.error("Login component error:", err);
+      setError('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -42,19 +48,18 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#FAFAFA] flex items-center justify-center p-6">
-      
       <div className="w-full max-w-[400px]">
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-yellow-400 text-white font-bold text-2xl shadow-lg shadow-yellow-100 mb-4">
             CRM
           </div>
-          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">Welcome Back</h1>
+          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight uppercase">Welcome Back</h1>
           <p className="text-gray-500 text-sm mt-2">Enter your details to access your dashboard</p>
         </div>
 
         <div className="bg-white border border-gray-100 rounded-3xl p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
           {error && (
-            <div className="mb-6 p-3 bg-red-50 border border-red-100 text-red-600 rounded-xl text-xs font-medium">
+            <div className="mb-6 p-3 bg-red-50 border border-red-100 text-red-600 rounded-xl text-[10px] font-bold uppercase tracking-widest">
               {error}
             </div>
           )}
@@ -109,7 +114,7 @@ export default function Home() {
             <button
               type="submit"
               disabled={loading}
-              className="cursor-pointer w-full bg-yellow-400 hover:bg-yellow-500 text-white py-3.5 rounded-xl font-bold text-sm shadow-md shadow-yellow-200/50 transition-all active:scale-[0.98] disabled:opacity-70 mt-2"
+              className="cursor-pointer w-full bg-yellow-400 hover:bg-yellow-500 text-white py-3.5 rounded-xl font-black text-[11px] uppercase tracking-widest shadow-md shadow-yellow-200/50 transition-all active:scale-[0.98] disabled:opacity-70 mt-2"
             >
               {loading ? 'Processing...' : 'Sign In to CRM'}
             </button>
@@ -118,18 +123,18 @@ export default function Home() {
           <div className="mt-8 text-center">
             <Link 
               href="/signup" 
-              className="text-sm text-gray-400 hover:text-yellow-600 transition-colors"
+              className="text-[11px] font-bold uppercase tracking-widest text-gray-400 hover:text-yellow-600 transition-colors"
             >
-              Don&apos;t have an account? <strong className="text-yellow-500 font-semibold cursor-pointer">Sign Up</strong>
+              Don&apos;t have an account? <strong className="text-yellow-500 font-black cursor-pointer">Sign Up</strong>
             </Link>
           </div>
         </div>
 
         <div className="mt-10 text-center space-y-2">
-          <div className="flex justify-center gap-4 text-[11px] text-gray-400">
-            <Link href="#" className="hover:underline">Privacy Policy</Link>
+          <div className="flex justify-center gap-4 text-[10px] font-bold uppercase tracking-widest text-gray-300">
+            <Link href="#" className="hover:text-gray-500 transition-colors">Privacy Policy</Link>
             <span>•</span>
-            <Link href="#" className="hover:underline">Terms of Service</Link>
+            <Link href="#" className="hover:text-gray-500 transition-colors">Terms of Service</Link>
           </div>
         </div>
       </div>

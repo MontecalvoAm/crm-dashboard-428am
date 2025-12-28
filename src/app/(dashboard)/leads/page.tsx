@@ -4,12 +4,17 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Plus, Search, Download, Grid, List, 
   Users, Loader2, Mail, Phone, Edit2, 
-  ChevronLeft, ChevronRight, Calendar, X 
+  ChevronLeft, ChevronRight, Calendar, X,
+  Trash2, Filter, ChevronDown
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
+// IMPORT YOUR MODAL COMPONENTS
+import EditLeadModal from './EditLeadModal';
+import DeleteLeadModal from './DeleteConfirmationModal';
+
 interface Lead {
-  token: string; // Changed from LeadID
+  token: string;
   LeadName: string;
   Email: string;
   Phone: string;
@@ -26,6 +31,15 @@ export default function LeadsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  
+  // --- STATES FOR FILTERING & SORTING ---
+  const [sortBy, setSortBy] = useState<'default' | 'status'>('default');
+  const [statusFilter, setStatusFilter] = useState<string>('All Status');
+
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [leadToAction, setLeadToAction] = useState<Lead | null>(null);
+
   const itemsPerPage = 5;
   const router = useRouter();
 
@@ -53,11 +67,39 @@ export default function LeadsPage() {
     fetchLeads();
   }, [fetchLeads]);
 
-  const totalPages = Math.ceil(leads.length / itemsPerPage);
+  // Extract unique statuses from the leads list for the dropdown
+  const uniqueStatuses = useMemo(() => {
+    const statuses = Array.from(new Set(leads.map(l => l.StatusName)));
+    return ['All Status', ...statuses];
+  }, [leads]);
+
+  // --- COMBINED LOGIC: FILTERING -> SORTING ---
+  const filteredAndSortedLeads = useMemo(() => {
+    // 1. Filter by Status
+    // FIX: Using const here for ESLint prefer-const
+    const processed = leads.filter(lead => {
+      return statusFilter === 'All Status' || lead.StatusName === statusFilter;
+    });
+
+    // 2. Sort results
+    if (sortBy === 'status') {
+      processed.sort((a, b) => a.StatusName.localeCompare(b.StatusName));
+    }
+
+    return processed;
+  }, [leads, statusFilter, sortBy]);
+
+  // Pagination based on filtered results
+  const totalPages = Math.ceil(filteredAndSortedLeads.length / itemsPerPage);
   const currentLeads = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
-    return leads.slice(start, start + itemsPerPage);
-  }, [leads, currentPage]);
+    return filteredAndSortedLeads.slice(start, start + itemsPerPage);
+  }, [filteredAndSortedLeads, currentPage]);
+
+  // Reset page when filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, sortBy]);
 
   const handleExport = () => {
     const headers = ['Name', 'Email', 'Phone', 'Message', 'Status', 'Date Added'];
@@ -73,6 +115,29 @@ export default function LeadsPage() {
     a.href = url;
     a.download = `leads-export-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
+  };
+
+  // Logic for Delete Confirmation (Now actually functional)
+  const handleDeleteConfirm = async () => {
+    if (!leadToAction?.token) return;
+
+    try {
+      const res = await fetch(`/api/leads/${leadToAction.token}`, {
+        method: 'DELETE',
+      });
+
+      const json = await res.json();
+
+      if (json.success) {
+        setIsDeleteModalOpen(false);
+        setLeadToAction(null);
+        fetchLeads(); // Refresh list
+      } else {
+        alert(json.error || "Failed to archive lead");
+      }
+    } catch (err) {
+      console.error('Delete request failed:', err);
+    }
   };
 
   return (
@@ -93,37 +158,58 @@ export default function LeadsPage() {
 
       {/* Toolbar */}
       <div className="bg-white border border-gray-100 rounded-[2rem] p-4 mb-8 shadow-sm flex flex-wrap items-center justify-between gap-4">
-        <div className="relative flex-1 max-w-md">
+        {/* Search Bar */}
+        <div className="relative flex-1 min-w-[300px]">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
           <input
             type="text"
             placeholder="SEARCH BY NAME, EMAIL OR MESSAGE..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-gray-50 border-transparent rounded-xl text-[10px] font-black uppercase tracking-widest focus:bg-white focus:ring-4 focus:ring-yellow-400/5 outline-none transition-all"
+            className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-transparent rounded-xl text-[10px] font-black uppercase tracking-widest focus:bg-white focus:ring-4 focus:ring-yellow-400/5 outline-none transition-all"
           />
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="flex bg-gray-50 p-1.5 rounded-xl border border-gray-100">
-            <button onClick={() => setViewMode('grid')} className={`p-2 rounded-lg transition-all cursor-pointer ${viewMode === 'grid' ? 'bg-white shadow-sm text-yellow-500' : 'text-gray-400 hover:text-gray-600'}`}>
-              <Grid className="w-4 h-4" />
-            </button>
-            <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg transition-all cursor-pointer ${viewMode === 'list' ? 'bg-white shadow-sm text-yellow-500' : 'text-gray-400 hover:text-gray-600'}`}>
-              <List className="w-4 h-4" />
-            </button>
+        <div className="flex items-center gap-4">
+          {/* Status Dropdown Filter */}
+          <div className="relative flex items-center">
+            <Filter className="absolute left-4 w-3.5 h-3.5 text-gray-400 z-10" />
+            <select 
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setSortBy(e.target.value === 'All Status' ? 'default' : 'status');
+              }}
+              className="pl-10 pr-10 py-3.5 bg-gray-50 border border-transparent rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:bg-white transition-all appearance-none cursor-pointer text-gray-600 min-w-[160px]"
+            >
+              {uniqueStatuses.map(status => (
+                <option key={status} value={status}>{status}</option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-4 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
           </div>
-          <button onClick={handleExport} className="p-3 border border-gray-100 rounded-xl hover:bg-gray-50 transition text-gray-400 cursor-pointer"><Download className="w-4 h-4" /></button>
+
+          <div className="flex items-center gap-3">
+            <div className="flex bg-gray-50 p-1.5 rounded-xl border border-gray-100">
+              <button onClick={() => setViewMode('grid')} className={`p-2 rounded-lg transition-all cursor-pointer ${viewMode === 'grid' ? 'bg-white shadow-sm text-yellow-500' : 'text-gray-400 hover:text-gray-600'}`}>
+                <Grid className="w-4 h-4" />
+              </button>
+              <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg transition-all cursor-pointer ${viewMode === 'list' ? 'bg-white shadow-sm text-yellow-500' : 'text-gray-400 hover:text-gray-600'}`}>
+                <List className="w-4 h-4" />
+              </button>
+            </div>
+            <button onClick={handleExport} className="p-3 border border-gray-100 rounded-xl hover:bg-gray-50 transition text-gray-400 cursor-pointer"><Download className="w-4 h-4" /></button>
+          </div>
         </div>
       </div>
 
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 text-yellow-400 animate-spin" /></div>
-      ) : leads.length === 0 ? (
+      ) : filteredAndSortedLeads.length === 0 ? (
         <div className="bg-white border border-dashed border-gray-200 rounded-[3rem] py-24 text-center">
             <Users className="w-10 h-10 text-yellow-500 mx-auto mb-4" />
-            <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">No leads found</h3>
-            <button onClick={() => setSearchTerm('')} className="mt-4 text-yellow-500 font-black text-[10px] uppercase tracking-widest hover:underline">Clear search</button>
+            <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">No matching leads</h3>
+            <button onClick={() => {setSearchTerm(''); setStatusFilter('All Status'); setSortBy('default');}} className="mt-4 text-yellow-500 font-black text-[10px] uppercase tracking-widest hover:underline">Reset filters</button>
         </div>
       ) : (
         <>
@@ -176,12 +262,26 @@ export default function LeadsPage() {
                         </span>
                       </td>
                       <td className="px-8 py-6 text-right">
-                        <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex justify-end gap-2">
                           <button 
-                            onClick={(e) => { e.stopPropagation(); router.push(`/leads/edit/${lead.token}`); }}
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              setLeadToAction(lead);
+                              setIsEditModalOpen(true); 
+                            }}
                             className="p-2.5 rounded-xl bg-gray-50 text-gray-400 hover:bg-blue-50 hover:text-blue-600 transition-all cursor-pointer"
                           >
                             <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              setLeadToAction(lead);
+                              setIsDeleteModalOpen(true); 
+                            }}
+                            className="p-2.5 rounded-xl bg-gray-50 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-all cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </td>
@@ -197,7 +297,13 @@ export default function LeadsPage() {
                     onClick={() => setSelectedLead(lead)}
                     className="border border-gray-100 rounded-[2rem] p-6 hover:shadow-xl transition-all bg-white relative overflow-hidden cursor-pointer hover:border-yellow-200"
                   >
-                    <p className="text-[9px] font-black text-yellow-500 uppercase tracking-widest mb-2">{lead.StatusName}</p>
+                    <div className="flex justify-between items-start mb-2">
+                      <p className="text-[9px] font-black text-yellow-500 uppercase tracking-widest mb-2">{lead.StatusName}</p>
+                      <div className="flex gap-2">
+                        <button onClick={(e) => { e.stopPropagation(); setLeadToAction(lead); setIsEditModalOpen(true); }} className="p-1 text-gray-400 hover:text-blue-500 transition-colors"><Edit2 className="w-3.5 h-3.5" /></button>
+                        <button onClick={(e) => { e.stopPropagation(); setLeadToAction(lead); setIsDeleteModalOpen(true); }} className="p-1 text-gray-400 hover:text-red-500 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    </div>
                     <p className="font-black text-gray-900 uppercase tracking-tight">{lead.LeadName}</p>
                     <div className="mt-4 p-4 bg-gray-50 rounded-2xl text-[11px] text-gray-500 italic">
                       &quot;{lead.MessageContent.substring(0, 80)}...&quot;
@@ -211,9 +317,10 @@ export default function LeadsPage() {
             )}
           </div>
 
+          {/* Pagination */}
           <div className="flex items-center justify-between px-8">
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-              Showing <span className="text-gray-900">{(currentPage - 1) * itemsPerPage + 1}</span> to <span className="text-gray-900">{Math.min(currentPage * itemsPerPage, leads.length)}</span> of <span className="text-gray-900">{leads.length}</span> Records
+              Showing <span className="text-gray-900">{(currentPage - 1) * itemsPerPage + 1}</span> to <span className="text-gray-900">{Math.min(currentPage * itemsPerPage, filteredAndSortedLeads.length)}</span> of <span className="text-gray-900">{filteredAndSortedLeads.length}</span> Records
             </p>
             <div className="flex gap-2">
               <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-2.5 rounded-xl border border-gray-100 bg-white text-gray-400 disabled:opacity-20 cursor-pointer shadow-sm"><ChevronLeft className="w-4 h-4" /></button>
@@ -228,6 +335,23 @@ export default function LeadsPage() {
         </>
       )}
 
+      {/* --- EXTERNAL MODALS --- */}
+      <EditLeadModal 
+        isOpen={isEditModalOpen} 
+        onClose={() => setIsEditModalOpen(false)} 
+        lead={leadToAction} 
+        onUpdate={fetchLeads} 
+      />
+
+      <DeleteLeadModal 
+        isOpen={isDeleteModalOpen} 
+        onClose={() => setIsDeleteModalOpen(false)} 
+        onConfirm={handleDeleteConfirm} 
+        leadName={leadToAction?.LeadName || ''} 
+        leadToken={leadToAction?.token || ''} 
+      />
+
+      {/* --- FULL DETAIL MODAL (RESORED COMPLETE UI) --- */}
       {selectedLead && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-gray-100">
