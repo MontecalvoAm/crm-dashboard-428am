@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db/updated-connection';
 
-// 1. Define specific interfaces for your database rows
+// Define the interface for database modification results (UPDATE/DELETE/INSERT)
+interface ResultSetHeader {
+  affectedRows: number;
+  insertId?: number;
+  warningStatus?: number;
+}
+
 interface LeadRow {
+  LeadID: number;
   token: string;
   LeadName: string;
   Email: string;
   Phone: string;
   MessageContent: string;
+  StatusID: number;
   DateAdded: string;
   assigned_first: string | null;
   assigned_last: string | null;
@@ -15,8 +23,6 @@ interface LeadRow {
 
 interface ActivityRow {
   id: number;
-  lead_id: number;
-  user_id: number;
   activity_type: string;
   activity_details: string;
   first_name: string;
@@ -24,6 +30,7 @@ interface ActivityRow {
   created_at: string;
 }
 
+// GET: Fetch Single Lead and Activities
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -31,17 +38,14 @@ export async function GET(
   try {
     const { id: leadToken } = await params;
 
-    // 2. Cast the result to the specific interface array instead of any[]
     const rows = (await query(`
       SELECT l.*, u.first_name as assigned_first, u.last_name as assigned_last
       FROM T_Leads l
       LEFT JOIN M_Users u ON l.assigned_to = u.id
-      WHERE l.token = ? AND l.is_active = 1
+      WHERE l.token = ? AND l.is_deleted = 0
     `, [leadToken])) as LeadRow[];
 
-    const leadRow = rows[0];
-
-    if (!leadRow) {
+    if (!rows[0]) {
       return NextResponse.json({ success: false, error: 'Lead not found' }, { status: 404 });
     }
 
@@ -56,10 +60,7 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
-      data: { 
-        lead: leadRow, 
-        activities: activities || [] 
-      },
+      data: { lead: rows[0], activities: activities || [] },
     });
   } catch (err) {
     console.error('Fetch lead error:', err);
@@ -67,6 +68,30 @@ export async function GET(
   }
 }
 
+// PATCH: Update Lead Details
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: leadToken } = await params;
+    const body = await request.json();
+    const { LeadName, Email, Phone, StatusID } = body;
+
+    await query(`
+      UPDATE T_Leads 
+      SET LeadName = ?, Email = ?, Phone = ?, StatusID = ?
+      WHERE token = ? AND is_deleted = 0
+    `, [LeadName, Email, Phone, StatusID, leadToken]);
+
+    return NextResponse.json({ success: true, message: 'Lead updated successfully' });
+  } catch (err) {
+    console.error('Update lead error:', err);
+    return NextResponse.json({ success: false, error: 'Update failed' }, { status: 500 });
+  }
+}
+
+// DELETE: Soft Delete (Archive)
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -74,14 +99,20 @@ export async function DELETE(
   try {
     const { id: leadToken } = await params;
     
-    await query(
-      'UPDATE T_Leads SET is_active = 0, is_deleted = 1 WHERE token = ?', 
+    // FIX: Replaced 'any' with the 'ResultSetHeader' interface
+    const result = (await query(
+      'UPDATE T_Leads SET is_active = 0, is_deleted = 1, archived_at = NOW() WHERE token = ?', 
       [leadToken]
-    );
+    )) as ResultSetHeader;
+
+    // Logic: If no rows were changed, the token might be invalid
+    if (result.affectedRows === 0) {
+      return NextResponse.json({ success: false, error: 'Lead not found or already archived' }, { status: 404 });
+    }
     
-    return NextResponse.json({ success: true, message: 'Lead archived' });
+    return NextResponse.json({ success: true, message: 'Lead successfully archived' });
   } catch (err) {
-    console.error('Archive lead error:', err);
+    console.error('Archive failed:', err);
     return NextResponse.json({ success: false, error: 'Archive failed' }, { status: 500 });
   }
 }

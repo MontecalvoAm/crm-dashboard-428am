@@ -8,12 +8,13 @@ export async function GET(request: NextRequest) {
 
     const leads = await query(`
       SELECT 
-        l.token, -- Use token instead of LeadID
+        l.token,
         l.LeadName, 
         l.Email, 
         l.Phone, 
         l.MessageContent, 
         l.DateAdded,
+        l.StatusID, -- Added this so Edit Modal knows the current status
         s.status_name as StatusName
       FROM T_Leads l
       JOIN M_Status s ON l.StatusID = s.id

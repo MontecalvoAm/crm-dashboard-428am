@@ -27,8 +27,8 @@ export async function GET(request: NextRequest) {
       SELECT n.id, n.key, n.label, n.path, n.icon_name, n.sort_order
       FROM M_Navigations n
       JOIN M_NavigationUsers nu ON n.id = nu.navigation_id
-      JOIN M_Users u ON nu.user_id = u.id
-      WHERE u.token = ? AND u.is_deleted = 0
+      JOIN M_Users u ON nu.user_id = u.id 
+      WHERE u.token = ?                   
       ORDER BY n.sort_order ASC
     `, [userToken])) as NavRow[];
 

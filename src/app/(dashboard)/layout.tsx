@@ -25,7 +25,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [menuItems, setMenuItems] = useState<NavigationItem[]>([]);
   const [userProfile, setUserProfile] = useState({ 
     id: 0, 
-    token: '', // Added token to profile state
+    token: '', 
     firstName: 'User', 
     lastName: '', 
     email: '', 
@@ -38,11 +38,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [isPathAuthorized, setIsPathAuthorized] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('accessToken');
+    // SECURITY FIX: We only check for 'user' in localStorage. 
+    // The session token is now handled securely via HttpOnly Cookies.
     const storedUser = localStorage.getItem('user');
     
-    if (!token || !storedUser) {
-      // RESET ALL STATE BEFORE REDIRECT
+    if (!storedUser) {
       setMenuItems([]);
       setUserProfile({ 
         id: 0, token: '', firstName: 'User', lastName: '', 
@@ -60,7 +60,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const loadNavigation = async () => {
       try {
         setLoadingMenu(true);
-        // CHANGED: Use userToken instead of userId to hide numeric ID from network logs
+        // We use userToken for identity obfuscation as requested
         const response = await fetch(`/api/auth/navigation?userToken=${parsedUser.token}`);
         const data = await response.json();
         
@@ -95,18 +95,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [router, pathname]);
 
   const handleLogout = () => {
-    // 1. Clear all session data
     localStorage.clear();
-    
-    // 2. Clear all cookies (important if you store session info there)
+    // Manual cookie clearing as a fallback
     document.cookie.split(";").forEach((c) => {
       document.cookie = c
         .replace(/^ +/, "")
         .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
     });
-
-    // 3. Force a full page reload to the login page
-    // This is safer than router.push because it destroys all React state variables
+    // Hard refresh to clear React State
     window.location.href = '/';
   };
 

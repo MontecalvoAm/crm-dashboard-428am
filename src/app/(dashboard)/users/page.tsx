@@ -249,7 +249,7 @@ export default function UsersAndAccessPage() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {users?.map(user => (
-                <tr key={user.token} className="hover:bg-gray-50/50 transition-all duration-200 group">
+                <tr key={user.token} className="hover:bg-yellow-50/50 transition-all duration-200 group cursor-pointer">
                   <td className="px-8 py-5">
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-50 to-yellow-100 text-yellow-600 flex items-center justify-center font-black text-sm border border-yellow-200 shadow-sm">
@@ -305,7 +305,7 @@ export default function UsersAndAccessPage() {
             </div>
             <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
               {users?.filter(u => `${u.first_name} ${u.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())).map(u => (
-                <button key={u.token} onClick={() => setSelectedUser(u)} className={`w-full text-left px-4 py-3.5 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center justify-between ${selectedUser?.token === u.token ? 'bg-yellow-400 text-white shadow-lg shadow-yellow-100' : 'text-gray-500 hover:bg-gray-50 border border-transparent'}`}>
+                <button key={u.token} onClick={() => setSelectedUser(u)} className={`w-full text-left px-4 py-3.5 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center justify-between ${selectedUser?.token === u.token ? 'bg-yellow-400 text-white shadow-lg shadow-yellow-100' : 'text-gray-500 hover:bg-yellow-50/50 border border-transparent'}`}>
                   <span>{u.first_name} {u.last_name}</span>
                   {selectedUser?.token === u.token && <CheckCircle2 className="w-4 h-4" />}
                 </button>
