@@ -100,6 +100,7 @@ export default function ManageUsersPage() {
     <div className="max-w-7xl mx-auto animate-in fade-in duration-700">
       {/* Edit Modal */}
       <EditUserModal 
+        key={userToEdit?.token || 'new'} // Add this line!
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         onSave={handleUpdateUser}

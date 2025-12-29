@@ -1,70 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db/updated-connection';
 
-// Interface for TS safety
-interface ResultSetHeader {
-  affectedRows: number;
-}
-
-// 1. Fetch all soft-deleted companies
 export async function GET() {
   try {
     const archivedCompanies = await query(`
-      SELECT 
-        token, 
-        CompanyName, 
-        Industry, 
-        Email, 
-        archived_at
+      SELECT token, CompanyName, Industry, Email, archived_at
       FROM T_Companies
       WHERE is_deleted = 1
       ORDER BY archived_at DESC
     `);
-    
     return NextResponse.json({ success: true, data: archivedCompanies });
   } catch (error) {
-    console.error('Fetch companies archive error:', error);
     return NextResponse.json({ success: false, error: 'Database error' }, { status: 500 });
   }
 }
 
-// 2. Restore or Hard Delete a Company
 export async function POST(request: NextRequest) {
   try {
     const { token, action } = await request.json();
 
-    if (!token) {
-      return NextResponse.json({ success: false, error: 'Token is required' }, { status: 400 });
-    }
-
     if (action === 'restore') {
-      // Restore: Set is_deleted back to 0 and clear archived_at
-      const result = await query(
-        'UPDATE T_Companies SET is_deleted = 0, archived_at = NULL WHERE token = ?', 
-        [token]
-      ) as ResultSetHeader;
-
-      if (result.affectedRows === 0) {
-        return NextResponse.json({ success: false, error: 'Company not found' }, { status: 404 });
-      }
-
-      return NextResponse.json({ success: true, message: 'Company restored to active directory.' });
+      await query('UPDATE T_Companies SET is_deleted = 0, archived_at = NULL WHERE token = ?', [token]);
+      return NextResponse.json({ success: true, message: 'Company restored.' });
     } 
 
     if (action === 'permanent_delete') {
-      // Hard Delete: Physically remove from DB
-      const result = await query('DELETE FROM T_Companies WHERE token = ?', [token]) as ResultSetHeader;
-
-      if (result.affectedRows === 0) {
-        return NextResponse.json({ success: false, error: 'Company not found' }, { status: 404 });
-      }
-
-      return NextResponse.json({ success: true, message: 'Company purged from the vault forever.' });
+      await query('DELETE FROM T_Companies WHERE token = ?', [token]);
+      return NextResponse.json({ success: true, message: 'Company purged.' });
     }
 
     return NextResponse.json({ success: false, error: 'Invalid action' }, { status: 400 });
   } catch (error) {
-    console.error('Archive operation failed:', error);
     return NextResponse.json({ success: false, error: 'Operation failed' }, { status: 500 });
   }
 }

@@ -131,7 +131,11 @@ export default function CompaniesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [toast, setToast] = useState({ show: false, message: '' });
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false); // Auth State
   const router = useRouter();
+
+  // Define the Super Admin token constant used throughout your project
+  const SUPER_ADMIN_TOKEN = 'role_dbf36ff3e3827639223983ee8ac47b42';
 
   const fetchCompanies = useCallback(async () => {
     try {
@@ -146,7 +150,30 @@ export default function CompaniesPage() {
     }
   }, [searchTerm]);
 
-  useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
+  useEffect(() => {
+    // 1. Check for Super Admin Token on mount
+    const xRoleToken = localStorage.getItem('x-user-role-token');
+    const storedUser = localStorage.getItem('user');
+
+    let isAdmin = false;
+
+    // Check direct token
+    if (xRoleToken === SUPER_ADMIN_TOKEN) {
+      isAdmin = true;
+    } 
+    // Fallback: check inside the JSON 'user' object if that's where you keep it
+    else if (storedUser) {
+      const parsed = JSON.parse(storedUser);
+      if ((parsed.roleToken || parsed.role_token) === SUPER_ADMIN_TOKEN) {
+        isAdmin = true;
+      }
+    }
+
+    setIsSuperAdmin(isAdmin);
+    
+    // 2. Fetch data
+    fetchCompanies(); 
+  }, [fetchCompanies]);
 
   const handleSuccess = () => {
     fetchCompanies();
@@ -161,12 +188,16 @@ export default function CompaniesPage() {
           <h1 className="text-3xl font-black text-yellow-400 tracking-tight uppercase">Companies</h1>
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.3em] mt-2">Enterprise Directory & Partnership Management</p>
         </div>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="bg-yellow-400 hover:bg-yellow-500 text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-yellow-100 transition-all active:scale-95 cursor-pointer"
-        >
-          <Plus className="w-4 h-4 inline mr-2" /> Add Company
-        </button>
+        
+        {/* Only show the Add Company button if user is the Super Admin */}
+        {isSuperAdmin && (
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="bg-yellow-400 hover:bg-yellow-500 text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-yellow-100 transition-all active:scale-95 cursor-pointer"
+          >
+            <Plus className="w-4 h-4 inline mr-2" /> Add Company
+          </button>
+        )}
       </div>
 
       {/* Toolbar */}
@@ -206,7 +237,7 @@ export default function CompaniesPage() {
                   <td className="px-8 py-6">
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-2xl bg-yellow-50 text-yellow-600 flex items-center justify-center font-black text-sm border border-yellow-100 uppercase transition-transform group-hover:scale-110">
-                        {company.CompanyName[0]}
+                        {company.CompanyName?.[0] || 'C'}
                       </div>
                       <div>
                         <p className="text-sm font-black text-gray-900 uppercase tracking-tighter">{company.CompanyName}</p>
