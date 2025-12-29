@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, cloneElement, ReactElement } from 'react';
+import { useState, useEffect, useCallback, ReactElement } from 'react';
 import { 
   ArrowLeft, Building2, Mail, Phone, MapPin, 
   Globe, Share2, Edit2, Trash2, Loader2, Info
@@ -24,14 +24,10 @@ interface Company {
 export default function CompanyDetailPage() {
   const router = useRouter();
   const params = useParams();
-  
-  // LOGIC FIX: Next.js folder [token] requires accessing params.token
   const token = params?.token as string;
 
   const [company, setCompany] = useState<Company | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // States for Modals
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -39,19 +35,23 @@ export default function CompanyDetailPage() {
     if (!token) return;
     try {
       setLoading(true);
-      const res = await fetch(`/api/companies/${token}`);
+      // Ensure you pass the required headers if your API checks for them
+      const res = await fetch(`/api/companies/${token}`, {
+        headers: {
+          'x-company-token': token, // Example mapping
+          'x-user-role-token': 'admin' // Example mapping
+        }
+      });
       
-      // CRITICAL FIX: If the server returns 404 HTML, stop here
       if (!res.ok) {
-        const errorText = await res.text();
-        console.error("Server returned non-JSON response:", errorText);
         setCompany(null);
         return;
       }
 
       const json = await res.json();
       if (json.success) {
-        setCompany(json.data.company);
+        // FIXED: API returns company object directly in data
+        setCompany(json.data); 
       } else {
         setCompany(null);
       }
@@ -190,21 +190,21 @@ export default function CompanyDetailPage() {
 }
 
 function DetailItem({ icon, label, value, isLink = false }: { icon: ReactElement, label: string, value: string | null, isLink?: boolean }) {
-    return (
-      <div className="flex items-start gap-5 group">
-        <div className="shrink-0 w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center text-yellow-500 border border-gray-100 group-hover:bg-yellow-400 group-hover:text-white transition-all duration-300">
-          {icon}
-        </div>
-        <div className="min-w-0 pt-0.5">
-          <p className="text-[8px] font-black text-gray-300 uppercase tracking-widest mb-1">{label}</p>
-          {isLink && value ? (
-            <a href={value} target="_blank" rel="noopener noreferrer" className="text-[13px] font-bold text-blue-600 hover:underline break-all transition-all">
-              {value}
-            </a>
-          ) : (
-            <p className="text-[13px] font-bold text-gray-900 break-all">{value || 'Not Registered'}</p>
-          )}
-        </div>
+  return (
+    <div className="flex items-start gap-5 group">
+      <div className="shrink-0 w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center text-yellow-500 border border-gray-100 group-hover:bg-yellow-400 group-hover:text-white transition-all duration-300">
+        {icon}
       </div>
-    );
+      <div className="min-w-0 pt-0.5">
+        <p className="text-[8px] font-black text-gray-300 uppercase tracking-widest mb-1">{label}</p>
+        {isLink && value ? (
+          <a href={value.startsWith('http') ? value : `https://${value}`} target="_blank" rel="noopener noreferrer" className="text-[13px] font-bold text-blue-600 hover:underline break-all transition-all">
+            {value}
+          </a>
+        ) : (
+          <p className="text-[13px] font-bold text-gray-900 break-all">{value || 'Not Registered'}</p>
+        )}
+      </div>
+    </div>
+  );
 }
