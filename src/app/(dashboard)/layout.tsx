@@ -24,15 +24,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   
+  // The specific token used to identify Super Admins
+  const SUPER_ADMIN_TOKEN = 'role_dbf36ff3e3827639223983ee8ac47b42';
+
   const [authorized, setAuthorized] = useState(false);
   const [menuItems, setMenuItems] = useState<NavigationItem[]>([]);
   const [openMenus, setOpenMenus] = useState<Record<number, boolean>>({});
+  
+  // Updated state to include tokens
   const [userProfile, setUserProfile] = useState({ 
     token: '', 
     firstName: 'User', 
     lastName: '', 
     email: '', 
-    roleId: 0, 
+    roleToken: '', 
+    companyToken: '',
     role_name: '' 
   });
   
@@ -40,10 +46,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [loadingMenu, setLoadingMenu] = useState(true);
   const [isPathAuthorized, setIsPathAuthorized] = useState(true);
 
+  // Determine admin status
+  const isSuperAdmin = userProfile.roleToken === SUPER_ADMIN_TOKEN;
+
   const menuTree = useMemo(() => {
     const itemMap: Record<number, NavigationItem> = {};
+    
     menuItems.forEach(item => {
-      itemMap[Number(item.id)] = { ...item, children: [] };
+      // LOGIC: If NOT super admin and item is 'companies', modify it dynamically
+      let finalLabel = item.label;
+      let finalPath = item.path;
+
+      if (item.key === 'companies' && !isSuperAdmin) {
+        finalLabel = 'Company'; // Singular
+        finalPath = `/companies/${userProfile.companyToken}`; // Direct to their company
+      }
+
+      itemMap[Number(item.id)] = { 
+        ...item, 
+        label: finalLabel, 
+        path: finalPath, 
+        children: [] 
+      };
     });
 
     const tree: NavigationItem[] = [];
@@ -58,7 +82,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     });
 
     return tree.sort((a, b) => a.sort_order - b.sort_order);
-  }, [menuItems]);
+  }, [menuItems, isSuperAdmin, userProfile.companyToken]);
 
   const toggleMenu = (id: number) => {
     setOpenMenus(prev => ({ ...prev, [id]: !prev[id] }));
@@ -84,17 +108,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         if (data.success && data.data.menu) {
           const menu: NavigationItem[] = data.data.menu;
           setMenuItems(menu);
+
+          // Security: If non-admin tries to access /companies (the list), block them
+          if (pathname === '/companies' && parsedUser.roleToken !== SUPER_ADMIN_TOKEN) {
+            setIsPathAuthorized(false);
+            setTimeout(() => router.push(`/companies/${parsedUser.companyToken}`), 2000);
+            return;
+          }
+
           const activeItem = menu.find(item => pathname === item.path);
           if (activeItem?.parent_id) {
             setOpenMenus(prev => ({ ...prev, [Number(activeItem.parent_id)]: true }));
           }
+
           if (pathname === '/dashboard') {
             setIsPathAuthorized(true);
             return;
           }
-          const hasAccess = menu.some(item => 
-            pathname === item.path || pathname.startsWith(`${item.path}/`)
-          );
+
+          // Dynamic Path authorization check
+          const hasAccess = menu.some(item => {
+             // Admin has access to exact path or subpaths
+             if (pathname === item.path || pathname.startsWith(`${item.path}/`)) return true;
+             // Non-admin logic for /companies/[token]
+             if (item.key === 'companies' && pathname.startsWith('/companies/')) return true;
+             return false;
+          });
+
           if (!hasAccess) {
             setIsPathAuthorized(false);
             setTimeout(() => router.push('/dashboard'), 3000);
@@ -123,7 +163,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen bg-[#FAFAFA]">
-      {/* Sidebar - Professional Width (288px) */}
       <aside className="w-72 bg-white border-r border-gray-100 hidden md:flex flex-col p-6 sticky top-0 h-screen z-20">
         <div className="flex items-center gap-3 mb-10 px-2">
           <div className="w-10 h-10 bg-yellow-400 rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-yellow-100">
@@ -177,7 +216,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <Link
                     href={item.path}
                     className={`flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-2xl transition-all whitespace-nowrap group ${
-                      pathname === item.path 
+                      pathname === item.path || (item.key === 'companies' && pathname.startsWith('/companies/'))
                       ? 'text-yellow-600 bg-yellow-50 shadow-md shadow-yellow-100/50 border-l-4 border-yellow-400' 
                       : 'text-gray-500 hover:text-yellow-600 hover:bg-yellow-50/30'
                     }`}
@@ -200,7 +239,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Spacious Header */}
         <header className="h-20 bg-white border-b border-gray-100 flex items-center justify-between px-8 sticky top-0 z-30 shadow-sm shadow-gray-50/50">
           <div className="flex items-center gap-4 bg-gray-50 px-4 py-2 rounded-xl border border-transparent focus-within:border-yellow-200 focus-within:bg-white transition-all w-96 max-w-full">
             <Search className="w-4 h-4 text-gray-400" />
@@ -252,8 +290,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex flex-col items-center justify-center h-[60vh] animate-in zoom-in-95">
                <div className="w-20 h-20 bg-red-50 rounded-3xl flex items-center justify-center mb-6"><ShieldAlert className="w-10 h-10 text-red-500" /></div>
                <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Access Denied</h2>
-               <p className="text-sm text-gray-500 mt-2 text-center max-w-xs">You don&apos;t have permission to access this page. Redirecting you to the dashboard...</p>
-               <button onClick={() => router.push('/dashboard')} className="mt-8 px-8 py-3 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-800 transition-all">Go Back Now</button>
+               <p className="text-sm text-gray-500 mt-2 text-center max-w-xs">You don&apos;t have permission to access the company directory. Redirecting...</p>
             </div>
           ) : (
             <div className="max-w-7xl mx-auto">
