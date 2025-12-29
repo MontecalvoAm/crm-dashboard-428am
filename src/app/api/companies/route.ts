@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db/updated-connection';
 import { v4 as uuidv4 } from 'uuid';
 
-// Define interface for the MAX + 1 result to avoid 'any'
 interface MaxIdResult {
   nextId: number;
 }
@@ -11,21 +10,51 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || '';
+    
+    const companyHeader = request.headers.get('x-company-id');
+    const roleId = request.headers.get('x-user-role-id');
 
-    const companies = await query(`
-      SELECT 
-        token, CompanyName, CompanyInfo, CompanyProfile, 
-        Industry, Email, Phone, WebsiteURL, SocialURL, 
-        LogoURL, Address
-      FROM T_Companies 
-      WHERE (CompanyName LIKE ? OR Industry LIKE ? OR CompanyInfo LIKE ?)
-      AND is_deleted = 0
-      ORDER BY CompanyName ASC
-    `, [`%${search}%`, `%${search}%`, `%${search}%`]);
+    // 1. Check if headers exist
+    if (companyHeader === null || roleId === null) {
+      return NextResponse.json({ success: false, error: 'User context missing' }, { status: 401 });
+    }
 
+    const companyId = parseInt(companyHeader);
+
+    // 2. Logic: If NOT Super Admin AND has no company, return empty list immediately
+    if (roleId !== '1' && companyId === -1) {
+      return NextResponse.json({ 
+        success: true, 
+        data: { companies: [] }, 
+        message: 'No company assigned to this account' 
+      });
+    }
+
+    // --- FIX: Added 'id' to the SELECT statement ---
+    let sql = `
+      SELECT id, token, CompanyName, CompanyInfo, Industry, Email, Phone, Address
+      FROM T_Companies
+      WHERE is_deleted = 0
+    `;
+    
+    const params: (string | number | null)[] = [];
+
+    // 3. Filter by company only if NOT a Super Admin
+    if (roleId !== '1') {
+      sql += ` AND id = ?`;
+      params.push(companyId);
+    }
+
+    if (search) {
+      sql += ` AND (CompanyName LIKE ? OR Industry LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    const companies = await query(sql, params);
     return NextResponse.json({ success: true, data: { companies } });
-  } catch (_error) {
-    // Removed unused 'error' variable to fix ESLint warning
+
+  } catch (error) {
+    console.error('Fetch companies error:', error);
     return NextResponse.json({ success: false, error: 'Database error' }, { status: 500 });
   }
 }
@@ -38,14 +67,14 @@ export async function POST(request: NextRequest) {
       Email, Phone, Address, WebsiteURL, SocialURL 
     } = body;
 
-    // MAX + 1 Strategy with proper typing
+    // MAX + 1 Strategy for Company ID
     const maxResult = (await query(
       'SELECT COALESCE(MAX(id), 0) + 1 as nextId FROM T_Companies'
     )) as MaxIdResult[];
     
     const nextId = maxResult[0].nextId;
 
-    // Generate Unique Token for system uniformity
+    // Generate Unique Token
     const token = `comp_${uuidv4().replace(/-/g, '').substring(0, 12)}`;
 
     await query(`

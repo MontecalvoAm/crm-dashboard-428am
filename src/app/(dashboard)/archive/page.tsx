@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
-// --- Interfaces for Uniformity ---
+// --- Interfaces ---
 interface ArchivedUser {
   token: string;
   first_name: string;
@@ -35,12 +35,10 @@ interface ArchivedCompany {
 }
 
 type ArchiveTab = 'users' | 'leads' | 'companies';
-// Create a union type for the state
 type ArchivedItem = ArchivedUser | ArchivedLead | ArchivedCompany;
 
 export default function ArchiveVaultPage() {
   const [activeTab, setActiveTab] = useState<ArchiveTab>('users');
-  // Use the union type instead of any[]
   const [data, setData] = useState<ArchivedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -74,6 +72,20 @@ export default function ArchiveVaultPage() {
       if (res.ok) await fetchArchived();
     } finally {
       setProcessingToken(null);
+    }
+  };
+
+  // Helper to extract display values based on active tab
+  const getDisplayDetails = (item: ArchivedItem) => {
+    if (activeTab === 'users') {
+      const u = item as ArchivedUser;
+      return { name: `${u.first_name} ${u.last_name}`, sub: u.email, meta: u.role_name };
+    } else if (activeTab === 'leads') {
+      const l = item as ArchivedLead;
+      return { name: l.LeadName, sub: l.Email, meta: l.StatusName };
+    } else {
+      const c = item as ArchivedCompany;
+      return { name: c.CompanyName, sub: c.Email, meta: c.Industry };
     }
   };
 
@@ -151,60 +163,62 @@ export default function ArchiveVaultPage() {
           <tbody className="divide-y divide-gray-50">
             {data
               .filter(item => {
-                // Type-safe name resolution
-                const name = activeTab === 'users' ? `${(item as ArchivedUser).first_name} ${(item as ArchivedUser).last_name}` : 
-                             activeTab === 'leads' ? (item as ArchivedLead).LeadName : (item as ArchivedCompany).CompanyName;
+                const { name } = getDisplayDetails(item);
                 return name.toLowerCase().includes(searchTerm.toLowerCase());
               })
-              .map(item => (
-              <tr key={item.token} className="hover:bg-gray-50/30 transition-all group">
-                <td className="px-10 py-7">
-                  <p className="text-sm font-black text-gray-900 uppercase tracking-tighter">
-                    {activeTab === 'users' ? `${(item as ArchivedUser).first_name} ${(item as ArchivedUser).last_name}` : 
-                     activeTab === 'leads' ? (item as ArchivedLead).LeadName : (item as ArchivedCompany).CompanyName}
-                  </p>
-                  <p className="text-[10px] text-gray-400 font-bold tracking-widest mt-0.5">
-                    <Mail className="w-3 h-3 inline mr-1 text-yellow-500" /> 
-                    {/* Handle casing differences between your interfaces */}
-                    {activeTab === 'users' ? (item as ArchivedUser).email : (item as ArchivedLead | ArchivedCompany).Email}
-                  </p>
-                </td>
-                <td className="px-10 py-7">
-                  <span className="px-3 py-1 bg-white border border-gray-100 rounded-lg text-[9px] font-black uppercase text-gray-400 tracking-tighter">
-                    {activeTab === 'users' ? (item as ArchivedUser).role_name : 
-                     activeTab === 'leads' ? (item as ArchivedLead).StatusName : (item as ArchivedCompany).Industry}
-                  </span>
-                </td>
-                <td className="px-10 py-7">
-                    <div className="flex items-center gap-2 text-gray-500">
-                      <Calendar className="w-3.5 h-3.5" />
-                      <p className="text-[10px] font-bold uppercase">
-                        {new Date(item.archived_at).toLocaleDateString(undefined, { dateStyle: 'long' })}
+              .map((item, index) => {
+                const { name, sub, meta } = getDisplayDetails(item);
+                // FIXED: Using a composite key to ensure global uniqueness
+                const rowKey = `${activeTab}-${item.token}-${index}`;
+                
+                return (
+                  <tr key={rowKey} className="hover:bg-gray-50/30 transition-all group">
+                    <td className="px-10 py-7">
+                      <p className="text-sm font-black text-gray-900 uppercase tracking-tighter">
+                        {name}
                       </p>
-                    </div>
-                </td>
-                <td className="px-10 py-7 text-right">
-                  <div className="flex justify-end gap-3">
-                    <button 
-                      onClick={() => handleVaultAction(item.token, 'restore')}
-                      disabled={processingToken === item.token}
-                      className="flex items-center gap-2 px-5 py-2.5 bg-green-50 text-green-600 border border-green-100 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-green-500 hover:text-white transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" /> Restore
-                    </button>
-                    <button 
-                      onClick={() => handleVaultAction(item.token, 'permanent_delete')}
-                      disabled={processingToken === item.token}
-                      className="flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-600 border border-red-100 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" /> Purge
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                      <p className="text-[10px] text-gray-400 font-bold tracking-widest mt-0.5">
+                        <Mail className="w-3 h-3 inline mr-1 text-yellow-500" /> 
+                        {sub}
+                      </p>
+                    </td>
+                    <td className="px-10 py-7">
+                      <span className="px-3 py-1 bg-white border border-gray-100 rounded-lg text-[9px] font-black uppercase text-gray-400 tracking-tighter">
+                        {meta}
+                      </span>
+                    </td>
+                    <td className="px-10 py-7">
+                        <div className="flex items-center gap-2 text-gray-500">
+                          <Calendar className="w-3.5 h-3.5" />
+                          <p className="text-[10px] font-bold uppercase">
+                            {new Date(item.archived_at).toLocaleDateString(undefined, { dateStyle: 'long' })}
+                          </p>
+                        </div>
+                    </td>
+                    <td className="px-10 py-7 text-right">
+                      <div className="flex justify-end gap-3">
+                        <button 
+                          onClick={() => handleVaultAction(item.token, 'restore')}
+                          disabled={processingToken === item.token}
+                          className="flex items-center gap-2 px-5 py-2.5 bg-green-50 text-green-600 border border-green-100 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-green-500 hover:text-white transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" /> Restore
+                        </button>
+                        <button 
+                          onClick={() => handleVaultAction(item.token, 'permanent_delete')}
+                          disabled={processingToken === item.token}
+                          className="flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-600 border border-red-100 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Purge
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
           </tbody>
         </table>
+        
         {data.length === 0 && !loading && (
           <div className="py-24 text-center">
             <ShieldAlert className="w-12 h-12 text-gray-100 mx-auto mb-4" />

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyPassword } from '@/lib/auth/encryption'; 
+import { verifyPassword } from '@/lib/auth/encryption';
 import { query } from '@/lib/db/updated-connection';
-import { createSession } from '@/lib/auth/session'; 
+import { createSession } from '@/lib/auth/session';
 import { z } from 'zod';
 
 // 1. We keep 'id' in the interface for INTERNAL database operations
@@ -13,10 +13,12 @@ interface LoginUserRecord {
   email: string;
   password_hash: string;
   role_id: number;
+  company_id: number; // Add company_id for multi-tenancy
   is_active: number;
   role_name: string;
   permissions: string | string[];
-  group_roles: string | unknown[] | null; 
+  group_roles: string | unknown[] | null;
+  company_is_deleted: number; // Add flag to check if company is deleted
 }
 
 const loginSchema = z.object({
@@ -38,13 +40,16 @@ export async function POST(request: NextRequest) {
 
     const { email, password } = validationResult.data;
 
-    // 1. Find user - we SELECT the id so we can use it on the server
+    // 1. Find user with LEFT JOIN to handle users without companies temporarily
     const users = (await query(`
-      SELECT u.id, u.token, u.first_name, u.last_name, u.email, u.password_hash, u.role_id, 
-             u.group_roles, u.is_active, r.role_name, r.permissions
+      SELECT u.id, u.token, u.first_name, u.last_name, u.email, u.password_hash, u.role_id,
+             u.group_roles, u.is_active, u.company_id, r.role_name, r.permissions,
+             COALESCE(c.is_deleted, 0) as company_is_deleted
       FROM M_Users u
       JOIN M_Roles r ON u.role_id = r.id
+      LEFT JOIN T_Companies c ON u.company_id = c.id
       WHERE u.email = ? AND u.is_active = 1
+      AND (u.company_id IS NULL OR c.is_deleted = 0)
     `, [email])) as unknown as LoginUserRecord[];
 
     const user = users[0];
@@ -65,11 +70,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Create stateless session (JWT in HttpOnly Cookie)
+    // 3. Create stateless session (JWT in HttpOnly Cookie) with company context
+    // Handle users without companies temporarily (use -1 as special value)
     await createSession({
       token: user.token,
       roleId: user.role_id,
       email: user.email,
+      companyId: user.company_id || -1,
     });
 
     // 4. Update last login - Using ID here is safe as it stays on the server
@@ -92,6 +99,7 @@ export async function POST(request: NextRequest) {
           email: user.email,
           roleId: user.role_id,
           roleName: user.role_name,
+          companyId: user.company_id,
         }
       },
       message: 'Login successful',
