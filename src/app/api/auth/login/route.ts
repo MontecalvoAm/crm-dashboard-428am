@@ -4,21 +4,18 @@ import { query } from '@/lib/db/updated-connection';
 import { createSession } from '@/lib/auth/session';
 import { z } from 'zod';
 
-// 1. We keep 'id' in the interface for INTERNAL database operations
 interface LoginUserRecord {
-  id: number; // Keep for internal SQL queries
+  id: number;
   token: string;
   first_name: string;
   last_name: string;
   email: string;
   password_hash: string;
-  role_id: number;
-  company_id: number; // Add company_id for multi-tenancy
+  role_token: string;    // NEW: Fetch from M_Roles
+  company_token: string; // NEW: Fetch from T_Companies
   is_active: number;
   role_name: string;
-  permissions: string | string[];
-  group_roles: string | unknown[] | null;
-  company_is_deleted: number; // Add flag to check if company is deleted
+  company_is_deleted: number;
 }
 
 const loginSchema = z.object({
@@ -40,10 +37,11 @@ export async function POST(request: NextRequest) {
 
     const { email, password } = validationResult.data;
 
-    // 1. Find user with LEFT JOIN to handle users without companies temporarily
+    // 1. UPDATED SQL: Now fetching r.token and c.token
     const users = (await query(`
-      SELECT u.id, u.token, u.first_name, u.last_name, u.email, u.password_hash, u.role_id,
-             u.group_roles, u.is_active, u.company_id, r.role_name, r.permissions,
+      SELECT u.id, u.token, u.first_name, u.last_name, u.email, u.password_hash, 
+             u.is_active, r.role_name, r.token as role_token, 
+             c.token as company_token,
              COALESCE(c.is_deleted, 0) as company_is_deleted
       FROM M_Users u
       JOIN M_Roles r ON u.role_id = r.id
@@ -55,51 +53,38 @@ export async function POST(request: NextRequest) {
     const user = users[0];
 
     if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid email or password' },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, error: 'Invalid email or password' }, { status: 401 });
     }
 
     // 2. Verify password
     const isPasswordValid = await verifyPassword(password, user.password_hash);
     if (!isPasswordValid) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid email or password' },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, error: 'Invalid email or password' }, { status: 401 });
     }
 
-    // 3. Create stateless session (JWT in HttpOnly Cookie) with company context
-    // Handle users without companies temporarily (use -1 as special value)
+    // 3. Create session using TOKENS (This fixes the empty list/401 issues)
     await createSession({
       token: user.token,
-      roleId: user.role_id,
+      roleToken: user.role_token,
       email: user.email,
-      companyId: user.company_id || -1,
+      companyToken: user.company_token || 'public', 
     });
 
-    // 4. Update last login - Using ID here is safe as it stays on the server
-    await query(`
-      UPDATE M_Users
-      SET last_login = NOW()
-      WHERE id = ?
-    `, [user.id]);
+    // 4. Update last login (Internal ID is safe here)
+    await query(`UPDATE M_Users SET last_login = NOW() WHERE id = ?`, [user.id]);
 
-    // 5. OWASP SECURITY FIX: Omit the numeric 'id' from the response.
-    // The frontend only receives and stores the 'token'.
+    // 5. RESPONSE: Returning only Tokens to Local Storage
     return NextResponse.json({
       success: true,
       data: {
         user: {
-          // id is NOT returned here
           token: user.token,
           firstName: user.first_name,
           lastName: user.last_name,
           email: user.email,
-          roleId: user.role_id,
+          roleToken: user.role_token, // NO MORE roleId
           roleName: user.role_name,
-          companyId: user.company_id,
+          companyToken: user.company_token, // NO MORE companyId
         }
       },
       message: 'Login successful',
