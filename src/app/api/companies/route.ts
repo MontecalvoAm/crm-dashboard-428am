@@ -1,36 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db/updated-connection';
 import { v4 as uuidv4 } from 'uuid';
+import { RowDataPacket } from 'mysql2';
 
-interface MaxIdResult {
-  nextId: number;
-}
+// THE SPECIFIC SUPER ADMIN TOKEN
+const SUPER_ADMIN_TOKEN = 'role_dbf36ff3e3827639223983ee8ac47b42';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || '';
     
-    const companyHeader = request.headers.get('x-company-id');
-    const roleId = request.headers.get('x-user-role-id');
+    const companyToken = request.headers.get('x-company-token');
+    const roleToken = request.headers.get('x-user-role-token');
 
-    // 1. Check if headers exist
-    if (companyHeader === null || roleId === null) {
+    if (!companyToken || !roleToken) {
       return NextResponse.json({ success: false, error: 'User context missing' }, { status: 401 });
     }
 
-    const companyId = parseInt(companyHeader);
+    // FIXED: Strictly matching your Super Admin token string
+    const isSuperAdmin = roleToken === SUPER_ADMIN_TOKEN;
 
-    // 2. Logic: If NOT Super Admin AND has no company, return empty list immediately
-    if (roleId !== '1' && companyId === -1) {
-      return NextResponse.json({ 
-        success: true, 
-        data: { companies: [] }, 
-        message: 'No company assigned to this account' 
-      });
-    }
-
-    // --- FIX: Added 'id' to the SELECT statement ---
     let sql = `
       SELECT id, token, CompanyName, CompanyInfo, Industry, Email, Phone, Address
       FROM T_Companies
@@ -39,10 +29,10 @@ export async function GET(request: NextRequest) {
     
     const params: (string | number | null)[] = [];
 
-    // 3. Filter by company only if NOT a Super Admin
-    if (roleId !== '1') {
-      sql += ` AND id = ?`;
-      params.push(companyId);
+    // LOGIC PRESERVED: Only filter if NOT a Super Admin
+    if (!isSuperAdmin) {
+      sql += ` AND token = ?`;
+      params.push(companyToken);
     }
 
     if (search) {
@@ -50,7 +40,7 @@ export async function GET(request: NextRequest) {
       params.push(`%${search}%`, `%${search}%`);
     }
 
-    const companies = await query(sql, params);
+    const companies = await query<RowDataPacket[]>(sql, params);
     return NextResponse.json({ success: true, data: { companies } });
 
   } catch (error) {
@@ -67,15 +57,13 @@ export async function POST(request: NextRequest) {
       Email, Phone, Address, WebsiteURL, SocialURL 
     } = body;
 
-    // MAX + 1 Strategy for Company ID
-    const maxResult = (await query(
+    // Use a specific type for the MaxId query to satisfy TypeScript
+    const maxResult = await query<RowDataPacket[]>(
       'SELECT COALESCE(MAX(id), 0) + 1 as nextId FROM T_Companies'
-    )) as MaxIdResult[];
+    );
     
     const nextId = maxResult[0].nextId;
-
-    // Generate Unique Token
-    const token = `comp_${uuidv4().replace(/-/g, '').substring(0, 12)}`;
+    const token = `comp_${uuidv4().replace(/-/g, '').substring(0, 32)}`;
 
     await query(`
       INSERT INTO T_Companies (

@@ -2,9 +2,6 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { getCompanyContext } from '@/lib/auth/session';
 
-// REMOVE THIS: This is what is causing the crash
-// import { query } from '@/lib/db/updated-connection'; 
-
 const protectedRoutes = ['/api/leads', '/api/companies', '/api/dashboard', '/api/admin', '/api/users'];
 const publicRoutes = ['/api/auth/login', '/api/auth/register', '/api/auth/session', '/api/auth/navigation'];
 
@@ -26,10 +23,10 @@ export async function middleware(request: NextRequest) {
 
     const requestHeaders = new Headers(request.headers);
 
-    requestHeaders.set('x-company-id', companyContext.companyId.toString());
-
+    // SWAPPED: Using tokens instead of IDs for headers
+    requestHeaders.set('x-company-token', companyContext.companyToken);
     requestHeaders.set('x-user-token', companyContext.userToken);
-    requestHeaders.set('x-user-role-id', companyContext.roleId.toString());
+    requestHeaders.set('x-user-role-token', companyContext.roleToken);
 
     return NextResponse.next({
       request: { headers: requestHeaders },
@@ -42,11 +39,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    '/api/leads/:path*',
-    '/api/companies/:path*',
-    '/api/dashboard/:path*',
-    '/api/admin/:path*',
-    '/api/users/:path*'
-  ],
+  matcher: ['/api/leads/:path*', '/api/companies/:path*', '/api/dashboard/:path*', '/api/admin/:path*', '/api/users/:path*'],
 };

@@ -19,7 +19,7 @@ interface Lead {
   StatusName: string; 
   StatusID: number;
   CompanyName: string; 
-  company_id?: number; // Backend must return this in the initial GET
+  company_token?: string; // Crucial for dropdown matching
   DateAdded: string;
 }
 
@@ -42,53 +42,77 @@ export default function EditLeadModal({ isOpen, onClose, lead, onUpdate }: EditL
     Phone: '',
     Interest: '',
     StatusID: 0,
-    company_id: 0
+    company_token: '' 
   });
 
+  const SUPER_ADMIN_TOKEN = 'role_dbf36ff3e3827639223983ee8ac47b42';
+
+  // 1. Fetching logic (Admin check and Dropdown data)
   useEffect(() => {
     const fetchData = async () => {
+      if (!isOpen) return;
+
       try {
-        // 1. Get the 'user' object from local storage
         const storedUser = localStorage.getItem('user');
-        let adminStatus = false;
-  
-        if (storedUser) {
-          // 2. Parse the string into a JavaScript object
-          const userData = JSON.parse(storedUser);
-          
-          // 3. Access 'roleId' (matching the key in your Login API response)
-          // Note: Check if your frontend saves it as 'userData.roleId' or 'userData.user.roleId'
-          // Based on your previous storage sample, it is userData.roleId
-          const roleId = userData.roleId;
-  
-          adminStatus = String(roleId) === '1';
-        }
+        const xRoleToken = localStorage.getItem('x-user-role-token');
+        const xCompanyToken = localStorage.getItem('x-company-token');
         
+        let adminStatus = false;
+        let activeRoleToken = xRoleToken || '';
+        let activeCompanyToken = xCompanyToken || '';
+
+        // --- FIXED ADMIN DETECTION LOGIC ---
+        if (storedUser) {
+          const parsed = JSON.parse(storedUser);
+          // Check roleToken from stored user object
+          const userRoleToken = parsed.roleToken || parsed.role_token;
+          const userCompanyToken = parsed.companyToken || parsed.company_token;
+          
+          if (userRoleToken === SUPER_ADMIN_TOKEN) {
+            adminStatus = true;
+            activeRoleToken = userRoleToken;
+          }
+          if (userCompanyToken && !activeCompanyToken) {
+            activeCompanyToken = userCompanyToken;
+          }
+        }
+
+        // Fallback for direct header token check
+        if (!adminStatus && xRoleToken === SUPER_ADMIN_TOKEN) {
+          adminStatus = true;
+        }
+
         setIsSuperAdmin(adminStatus);
-  
-        // DEBUG: Verify this in your console
-        console.log("MODAL AUTH CHECK:", { adminStatus });
-  
+
+        const headers = {
+          'x-user-role-token': activeRoleToken,
+          'x-company-token': activeCompanyToken
+        };
+
         const [statusRes, companyRes] = await Promise.all([
           fetch('/api/statuses'),
-          adminStatus ? fetch('/api/companies') : Promise.resolve(null)
+          adminStatus ? fetch('/api/companies', { headers }) : Promise.resolve(null)
         ]);
-  
+
         const statusJson = await statusRes.json();
         if (statusJson.success) setStatuses(statusJson.data);
-  
+
         if (companyRes) {
           const companyJson = await companyRes.json();
-          if (companyJson.success) setCompanies(companyJson.data.companies || []);
+          // Adjust based on your API response structure for companies
+          const companyList = companyJson.data?.companies || companyJson.data || [];
+          if (companyJson.success) setCompanies(companyList);
         }
       } catch (err) {
         console.error("Failed to fetch edit modal data", err);
       }
     };
-  
-    if (isOpen) fetchData();
+
+    fetchData();
   }, [isOpen]);
 
+  // 2. FORM INITIALIZATION LOGIC
+  // This ensures the dropdown displays the current company of the lead
   useEffect(() => {
     if (lead) {
       setFormData({
@@ -97,7 +121,8 @@ export default function EditLeadModal({ isOpen, onClose, lead, onUpdate }: EditL
         Phone: lead.Phone || '',
         Interest: lead.Interest || '',
         StatusID: lead.StatusID || 0,
-        company_id: lead.company_id || 0
+        // Match the lead's company token to the dropdown options
+        company_token: lead.company_token || '' 
       });
     }
   }, [lead]);
@@ -108,15 +133,22 @@ export default function EditLeadModal({ isOpen, onClose, lead, onUpdate }: EditL
 
     try {
       setLoading(true);
-      const companyId = localStorage.getItem('company_id') || "";
-      const roleId = localStorage.getItem('user_role_id') || localStorage.getItem('role_id') || "";
+      const storedUser = localStorage.getItem('user');
+      let roleToken = localStorage.getItem('x-user-role-token') || "";
+      let companyToken = localStorage.getItem('x-company-token') || "";
+
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser);
+        if (!roleToken) roleToken = parsed.roleToken || "";
+        if (!companyToken) companyToken = parsed.companyToken || "";
+      }
 
       const response = await fetch(`/api/leads/${lead.token}`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
-          'x-company-id': companyId,
-          'x-user-role-id': roleId
+          'x-company-token': companyToken,
+          'x-user-role-token': roleToken
         },
         body: JSON.stringify(formData),
       });
@@ -140,7 +172,7 @@ export default function EditLeadModal({ isOpen, onClose, lead, onUpdate }: EditL
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-zinc-900/60 backdrop-blur-md animate-in fade-in duration-300">
-      <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl border border-zinc-100 overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
+      <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl border border-zinc-100 overflow-hidden flex flex-col max-h-[90vh]">
         <div className="p-10 pb-6 flex justify-between items-center border-b border-zinc-50 bg-zinc-50/30">
           <div className="flex items-center gap-5">
             <div className="w-12 h-12 rounded-2xl bg-yellow-400 flex items-center justify-center text-white shadow-lg shadow-yellow-200">
@@ -156,27 +188,32 @@ export default function EditLeadModal({ isOpen, onClose, lead, onUpdate }: EditL
           </button>
         </div>
         
-        <form onSubmit={handleSubmit} className="p-10 space-y-6 overflow-y-auto">
+        <form onSubmit={handleSubmit} className="p-10 space-y-6 overflow-y-auto custom-scrollbar">
+          {!isSuperAdmin && process.env.NODE_ENV === 'development' && (
+            <div className="p-4 bg-red-50 border border-red-100 rounded-2xl">
+               <p className="text-[10px] text-red-500 font-bold uppercase text-center">Admin access not detected. Check Console for DEBUG AUTH.</p>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-2 ml-1"><User className="w-3 h-3 text-yellow-500" /> Full Identity</label>
-              <input className="w-full px-6 py-4 bg-zinc-50 border border-zinc-100 rounded-2xl text-xs font-bold text-zinc-800 outline-none focus:bg-white focus:ring-4 focus:ring-yellow-400/10 transition-all" value={formData.LeadName} onChange={(e) => setFormData({...formData, LeadName: e.target.value})} required />
+              <input className="w-full px-6 py-4 bg-zinc-50 border border-zinc-100 rounded-2xl text-xs font-bold text-zinc-800 outline-none focus:bg-white transition-all" value={formData.LeadName} onChange={(e) => setFormData({...formData, LeadName: e.target.value})} required />
             </div>
             <div className="space-y-2">
               <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-2 ml-1"><Mail className="w-3 h-3 text-yellow-500" /> Email Address</label>
-              <input type="email" className="w-full px-6 py-4 bg-zinc-50 border border-zinc-100 rounded-2xl text-xs font-bold text-zinc-800 outline-none focus:bg-white focus:ring-4 focus:ring-yellow-400/10 transition-all" value={formData.Email} onChange={(e) => setFormData({...formData, Email: e.target.value})} required />
+              <input type="email" className="w-full px-6 py-4 bg-zinc-50 border border-zinc-100 rounded-2xl text-xs font-bold text-zinc-800 outline-none focus:bg-white transition-all" value={formData.Email} onChange={(e) => setFormData({...formData, Email: e.target.value})} required />
             </div>
             <div className="space-y-2">
               <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-2 ml-1"><Phone className="w-3 h-3 text-yellow-500" /> Phone</label>
-              <input className="w-full px-6 py-4 bg-zinc-50 border border-zinc-100 rounded-2xl text-xs font-bold text-zinc-800 outline-none focus:bg-white focus:ring-4 focus:ring-yellow-400/10 transition-all" value={formData.Phone} onChange={(e) => setFormData({...formData, Phone: e.target.value})} required />
+              <input className="w-full px-6 py-4 bg-zinc-50 border border-zinc-100 rounded-2xl text-xs font-bold text-zinc-800 outline-none focus:bg-white transition-all" value={formData.Phone} onChange={(e) => setFormData({...formData, Phone: e.target.value})} required />
             </div>
             <div className="space-y-2">
               <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-2 ml-1"><Star className="w-3 h-3 text-yellow-500" /> Lead Interest</label>
-              <input className="w-full px-6 py-4 bg-zinc-50 border border-zinc-100 rounded-2xl text-xs font-bold text-zinc-800 outline-none focus:bg-white focus:ring-4 focus:ring-yellow-400/10 transition-all" value={formData.Interest} placeholder="E.G. REAL ESTATE" onChange={(e) => setFormData({...formData, Interest: e.target.value})} />
+              <input className="w-full px-6 py-4 bg-zinc-50 border border-zinc-100 rounded-2xl text-xs font-bold text-zinc-800 outline-none focus:bg-white transition-all" value={formData.Interest} placeholder="E.G. REAL ESTATE" onChange={(e) => setFormData({...formData, Interest: e.target.value})} />
             </div>
           </div>
 
-          {/* RE-ENABLE ADMIN SECTION */}
           {isSuperAdmin && (
             <div className="space-y-2 pt-4 border-t border-zinc-50 animate-in slide-in-from-top-2 duration-500">
               <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-2 ml-1">
@@ -185,15 +222,16 @@ export default function EditLeadModal({ isOpen, onClose, lead, onUpdate }: EditL
               <div className="relative group">
                 <select 
                   className="w-full px-6 py-4 bg-zinc-50 border border-zinc-100 rounded-2xl text-xs font-bold text-zinc-800 outline-none appearance-none cursor-pointer focus:ring-4 focus:ring-yellow-400/10 transition-all"
-                  value={formData.company_id}
-                  onChange={(e) => setFormData({...formData, company_id: parseInt(e.target.value)})}
+                  value={formData.company_token}
+                  onChange={(e) => setFormData({...formData, company_token: e.target.value})}
+                  required
                 >
-                  <option value={0}>Select a Company</option>
+                  <option value="" disabled>Select a Company</option>
                   {companies.map((comp) => (
-                    <option key={comp.id} value={comp.id}>{comp.CompanyName}</option>
+                    <option key={comp.token} value={comp.token}>{comp.CompanyName}</option>
                   ))}
                 </select>
-                <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400 group-hover:text-yellow-500 transition-colors">
+                <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400">
                   <ChevronDown className="w-4 h-4" />
                 </div>
               </div>
@@ -212,7 +250,7 @@ export default function EditLeadModal({ isOpen, onClose, lead, onUpdate }: EditL
                   <option key={status.id} value={status.id}>{status.status_name}</option>
                 ))}
               </select>
-              <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500 group-hover:text-yellow-400 transition-colors">
+              <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500">
                 <ChevronDown className="w-5 h-5" />
               </div>
             </div>

@@ -2,21 +2,17 @@ import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
 import { NextRequest } from 'next/server';
 
-// Define the structure of the data we store in the JWT
 interface JWTPayload {
   userToken: string;
-  roleId: number;
+  roleToken: string; // Changed from roleId: number
   email: string;
-  companyId: number;
-  [key: string]: unknown; // Allows for standard JWT claims like 'iat' and 'exp'
+  companyToken: string; // Changed from companyId: number
+  [key: string]: unknown;
 }
 
 const secretKey = process.env.JWT_SECRET || 'fallback-secret-for-dev-only-change-this';
 const encodedKey = new TextEncoder().encode(secretKey);
 
-/**
- * Encrypt/Sign a JWT Token
- */
 export async function encrypt(payload: JWTPayload) {
   return await new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })
@@ -25,9 +21,6 @@ export async function encrypt(payload: JWTPayload) {
     .sign(encodedKey);
 }
 
-/**
- * Decrypt/Verify a JWT Token
- */
 export async function decrypt(token: string) {
   try {
     const { payload } = await jwtVerify(token, encodedKey, {
@@ -35,21 +28,20 @@ export async function decrypt(token: string) {
     });
     return payload as unknown as JWTPayload;
   } catch (error) {
-    console.error('Failed to verify session:', error);
     return null;
   }
 }
 
 /**
- * Create a Session Cookie (Stateless)
+ * Updated to accept Tokens instead of IDs
  */
-export async function createSession(userData: { token: string; roleId: number; email: string; companyId: number }) {
+export async function createSession(userData: { token: string; roleToken: string; email: string; companyToken: string }) {
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   const session = await encrypt({
     userToken: userData.token,
-    roleId: userData.roleId,
+    roleToken: userData.roleToken,
     email: userData.email,
-    companyId: userData.companyId
+    companyToken: userData.companyToken
   });
 
   const cookieStore = await cookies();
@@ -62,16 +54,13 @@ export async function createSession(userData: { token: string; roleId: number; e
   });
 }
 
-/**
- * Standard logout - deletes the cookie
- */
 export async function deleteSession() {
   const cookieStore = await cookies();
   cookieStore.delete('session');
 }
 
 /**
- * Get company context from session cookie
+ * Returns Token-based context
  */
 export async function getCompanyContext(request: NextRequest) {
   try {
@@ -82,9 +71,9 @@ export async function getCompanyContext(request: NextRequest) {
     if (!payload) return null;
 
     return {
-      companyId: payload.companyId,
+      companyToken: payload.companyToken, // Token-based
       userToken: payload.userToken,
-      roleId: payload.roleId,
+      roleToken: payload.roleToken, // Token-based
       email: payload.email
     };
   } catch (error) {
