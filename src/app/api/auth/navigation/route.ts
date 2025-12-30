@@ -1,18 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db/updated-connection';
+import { ResultSetHeader, RowDataPacket } from 'mysql2';
 
-// Updated interface to include hierarchy fields
-interface NavRow {
+// --- Interfaces ---
+interface NavRow extends RowDataPacket {
   id: number;
   key: string;
   label: string;
   path: string;
   icon_name: string;
   sort_order: number;
-  parent_id: number | null; // Added
-  is_parent: number;        // Added
+  parent_id: number | null;
+  is_parent: number;
 }
 
+interface MaxIdResult extends RowDataPacket {
+  nextId: number;
+}
+
+// GET: Fetch Navigation Menu
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -22,7 +28,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Token required' }, { status: 400 });
     }
 
-    // 1. Get the user's Role ID using the token
     const users = (await query(
       'SELECT role_id FROM M_Users WHERE token = ?', 
       [userToken]
@@ -35,8 +40,6 @@ export async function GET(request: NextRequest) {
     const userRole = users[0].role_id;
     let navigations: NavRow[] = [];
 
-    // 2. Logic: If Super Admin (ID: 1), get EVERYTHING. 
-    // Otherwise, get only assigned navigations.
     if (userRole === 1) {
       navigations = (await query(`
         SELECT id, \`key\`, label, path, icon_name, sort_order, parent_id, is_parent
@@ -54,12 +57,59 @@ export async function GET(request: NextRequest) {
       `, [userToken])) as NavRow[];
     }
 
-    return NextResponse.json({
-      success: true,
-      data: { menu: navigations }
-    });
+    return NextResponse.json({ success: true, data: { menu: navigations } });
   } catch (err) {
     console.error('Navigation fetch error:', err);
     return NextResponse.json({ success: false, error: 'Server error' }, { status: 500 });
+  }
+}
+
+// POST: Add New Navigation Item using MAX+1 Strategy
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { label, key, path, icon_name, sort_order, parent_id, is_parent } = body;
+
+    if (!label || !key || !path) {
+      return NextResponse.json({ success: false, error: 'Label, Key, and Path are required' }, { status: 400 });
+    }
+
+    // 1. MAX+1 Strategy: Get the next ID manually
+    const maxIdResult = await query<MaxIdResult[]>(
+      'SELECT COALESCE(MAX(id), 0) + 1 as nextId FROM M_Navigations'
+    );
+    const nextId = maxIdResult[0].nextId;
+
+    // 2. Handle empty strings for parent_id as NULL
+    const finalParentId = parent_id === '' || parent_id === null ? null : parent_id;
+
+    // 3. Insert into M_Navigations including the manual ID
+    const result = await query<ResultSetHeader>(`
+      INSERT INTO M_Navigations (id, label, \`key\`, path, icon_name, sort_order, parent_id, is_parent)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      nextId, 
+      label, 
+      key, 
+      path, 
+      icon_name || 'Layout', 
+      sort_order || 1, 
+      finalParentId, 
+      is_parent || 0
+    ]);
+
+    if (result.affectedRows === 0) {
+      return NextResponse.json({ success: false, error: 'Failed to insert navigation' }, { status: 500 });
+    }
+
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Navigation item created successfully',
+      data: { id: nextId }
+    });
+
+  } catch (err) {
+    console.error('Navigation create error:', err);
+    return NextResponse.json({ success: false, error: 'Internal Database Error' }, { status: 500 });
   }
 }
